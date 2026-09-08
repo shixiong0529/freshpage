@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>隐私与抓取说明 · FreshPage</title>
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<nav class="nav">
+  <div class="nav-inner">
+    <a class="brand" href="/"><span class="logo">FP</span>FreshPage</a>
+    <div class="nav-links">
+      <a href="/">首页</a>
+      <a href="/example">示例报告</a>
+      <a href="/privacy">隐私与抓取说明</a>
+    </div>
+  </div>
+</nav>
+
+<main class="main">
+  <div class="card doc">
+    <h1>隐私与抓取说明</h1>
+
+    <h2>我们收集什么</h2>
+    <ul>
+      <li>你提交的网址，以及被检查页面在检查当时的公开内容（标题、正文、链接）。</li>
+      <li>用于防止滥用的匿名标识（IP 的哈希值），不保存原始 IP 文本。</li>
+      <li>你对结果的「有帮助 / 不是问题」反馈计数。</li>
+    </ul>
+
+    <h2>我们不做什么</h2>
+    <ul>
+      <li>不需要注册或登录，不索取邮箱，不接入你的 CMS。</li>
+      <li>不登录你的网站，不绕过验证码或付费墙，不提交任何表单。</li>
+      <li>不检查需要登录才能访问的页面；遵守 robots.txt。</li>
+      <li>不访问内网地址、本机地址或云服务内部地址。</li>
+      <li>不会修改你的网站。</li>
+    </ul>
+
+    <h2>结果链接与保存期限</h2>
+    <ul>
+      <li>每次检查都会生成一个不可预测的随机链接，任何拿到链接的人都能查看结果。</li>
+      <li>结果默认保存 7 天，到期后自动删除；你也可以随时在结果页删除。</li>
+      <li>删除后链接立即永久失效。</li>
+    </ul>
+
+    <h2>关于自动判断</h2>
+    <p>
+      报告分为两类：确定性结果（例如页面返回 404、链接失效、出现未替换的模板变量）与
+      疑似结果（例如两个页面的价格不一致、日期看起来已经过期）。疑似结果需要你人工确认，
+      我们不会断言某个价格或政策一定错误。
+    </p>
+
+    <h2>联系</h2>
+    <p>这是一个 V0 验证版本。如发现明显误报或有功能建议，欢迎反馈。</p>
+  </div>
+</main>
+
+<footer class="foot">
+  <p>FreshPage V0 · 结果仅保存 7 天</p>
+</footer>
+</body>
+</html>

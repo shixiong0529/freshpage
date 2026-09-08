@@ -1,0 +1,4 @@
+User-agent: *
+Disallow: /secret.html
+
+Sitemap: /sitemap.xml

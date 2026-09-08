@@ -1,0 +1,12 @@
+node_modules/
+dist/
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/sample-report.json
+*.log
+.DS_Store
+.env
+
+# 本地助手工作目录（含会话记忆，不入库）
+.workbuddy/
