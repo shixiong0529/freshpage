@@ -161,4 +161,4 @@ npm test    # 68 个用例：38 单元 + 30 集成
 - 验收清单见 [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md)。
 - 已知限制见 [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md)。
 - 用户验证数据记录方式见 [`docs/VALIDATION.md`](docs/VALIDATION.md)。
-- **遗留问题（未处理）见 [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md)。**
+- **遗留问题处理记录见 [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md)：原清单 4 项已全部处理，其中埋点口径与浏览器回退前提有需要注意的地方。**
