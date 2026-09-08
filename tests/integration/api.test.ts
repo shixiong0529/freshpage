@@ -331,3 +331,102 @@ test('示例报告接口可用', async () => {
   const body: any = await res.json();
   assert.ok(body.scan && Array.isArray(body.findings));
 });
+
+/* ------------------------------ 前端埋点 ------------------------------ */
+
+async function sendTelemetry(body: unknown): Promise<{ status: number; body: any }> {
+  const res = await fetch(`${base}/api/telemetry`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return { status: res.status, body: await res.json() };
+}
+
+test('埋点只接受白名单事件名', async () => {
+  for (const bad of ['', 'drop table', 'home_view; x', 'HOME_VIEW', 123, null]) {
+    const res = await sendTelemetry({ event: bad });
+    assert.equal(res.status, 400, `${String(bad)} 应被拒绝`);
+  }
+  const ok = await sendTelemetry({ event: 'home_view' });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.ok, true);
+});
+
+test('同一会话的同一事件只记一次', async () => {
+  const first = await sendTelemetry({ event: 'monitor_intent' });
+  const second = await sendTelemetry({ event: 'monitor_intent' });
+  assert.equal(first.body.duplicate, false);
+  assert.equal(second.body.duplicate, true, '重复上报不应放大指标分子');
+  const funnel = repo.telemetryFunnel().find((r) => r.event_type === 'monitor_intent');
+  assert.equal(funnel?.sessions, 1);
+  assert.equal(funnel?.events, 1);
+});
+
+test('埋点与扫描绑定，并随扫描一起被清理', async () => {
+  const { token, scanId } = await createAndRun(fixture.url);
+  const bound = await sendTelemetry({ event: 'finding_expand', token });
+  assert.equal(bound.status, 200);
+  assert.equal(bound.body.duplicate, false);
+
+  const rows = repo.telemetryFunnel().find((r) => r.event_type === 'finding_expand');
+  assert.equal(rows?.sessions, 1, '事件应已落库');
+
+  // 无效 token 不报错，只是不绑定扫描
+  const orphan = await sendTelemetry({ event: 'copy_link', token: 'not-a-real-token' });
+  assert.equal(orphan.status, 200);
+
+  repo.markDeleted(scanId);
+  repo.purgeExpired(0);
+  assert.equal(
+    repo.telemetryFunnel().find((r) => r.event_type === 'finding_expand'),
+    undefined,
+    '扫描被清理后，绑定其上的埋点必须一并删除'
+  );
+});
+
+/* --------------------------- 队列与重试 --------------------------- */
+
+test('queued 任务只能被认领一次', async () => {
+  const created = await createScan(fixture.url + '/');
+  const scan = repo.getScanByToken(created.body.token)!;
+  assert.equal(scan.status, 'queued');
+  assert.equal(repo.claimQueuedScan(scan.id), true, '第一个 Worker 应认领成功');
+  assert.equal(repo.claimQueuedScan(scan.id), false, '第二个 Worker 不能重复认领');
+  assert.equal(repo.getScanById(scan.id)!.status, 'running');
+  // 复位，避免后续测试的同域名提交命中「复用进行中的扫描」
+  repo.updateScan(scan.id, { status: 'cancelled', current_stage: 'done', finished_at: new Date().toISOString() });
+});
+
+test('重试失败页面时遇到 429 立即停止，不再请求剩余页面', async () => {
+  const broken = await startFixtureServer({
+    '/help.html': { status: 500, body: '<h1>err</h1>' },
+    '/features.html': { status: 500, body: '<h1>err</h1>' },
+  });
+  try {
+    const res = await createScan(broken.url);
+    assert.equal(res.status, 202, JSON.stringify(res.body));
+    const scan = repo.getScanByToken(res.body.token)!;
+    await runScan(scan.id);
+
+    const failed = repo.listPageResults(scan.id).filter((p) => p.crawl_status === 'failed');
+    assert.ok(failed.length >= 2, `需要至少两个失败页面，实际 ${failed.length}`);
+
+    // 第一个被重试的页面返回 429，其余页面已恢复正常：只有正确退避时 recovered 才会是 0
+    const firstPath = new URL(failed[0].requested_url).pathname;
+    broken.setBehavior({ [firstPath]: { status: 429, body: 'slow down' } });
+
+    const recovered = await retryFailedPages(scan.id);
+    assert.equal(recovered, 0, '429 后必须停止重试，不能继续请求剩余失败页面');
+
+    const payload: any = await (await fetch(`${base}/api/scans/${res.body.token}`)).json();
+    assert.equal(payload.scan.failedCount, failed.length, '未重试的页面应保持失败状态');
+    assert.ok(String(payload.scan.truncationNote || '').includes('429'), '应说明因 429 提前停止');
+    assert.ok(
+      payload.events.some((e: any) => e.type === 'rate_limited'),
+      '应记录一条限流事件'
+    );
+  } finally {
+    await broken.close();
+  }
+});

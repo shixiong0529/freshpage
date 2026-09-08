@@ -17,6 +17,7 @@
     "test:unit": "npm run build && node --test dist/tests/unit/*.test.js",
     "test:integration": "npm run build && node --test dist/tests/integration/*.test.js",
     "cleanup": "node dist/src/cleanup-cli.js",
+    "stats": "npm run build && node dist/src/scripts/validation-stats.js",
     "gen:sample": "npm run build && FP_ALLOW_PRIVATE_TARGETS=1 node dist/src/scripts/gen-sample-report.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

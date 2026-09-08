@@ -66,8 +66,8 @@ export function startWorkerPolling(intervalMs = 2000): NodeJS.Timeout {
     const rows = repo.getQueuedScans(config.abuse.globalConcurrentScans - scanQueue.activeCount);
     for (const row of rows) {
       if (scanQueue.isClaimed(row.id)) continue;
-      // 抢占：先标记为 running，避免多 worker 重复领取
-      repo.updateScan(row.id, { status: 'running' });
+      // 原子认领：条件更新（queued -> running），没抢到说明已被其它 Worker 领走
+      if (!repo.claimQueuedScan(row.id)) continue;
       scanQueue.enqueue(row.id);
     }
   }, intervalMs);

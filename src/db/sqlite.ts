@@ -153,6 +153,20 @@ function migrate(d: DatabaseSync, label = config.dbPath): void {
     UNIQUE(finding_id, voter_hash)
   );
 
+  /* 匿名前端埋点：只存事件名、扫描 id 与会话哈希，不存 URL、正文与 IP 原文 */
+  CREATE TABLE IF NOT EXISTS telemetry_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scan_id INTEGER,
+    event_type TEXT NOT NULL,
+    session_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_telemetry_scan ON telemetry_events(scan_id);
+  CREATE INDEX IF NOT EXISTS idx_telemetry_created ON telemetry_events(created_at);
+  /* 同一会话同一扫描的同类事件只记一次，指标口径为「有多少用户做过」 */
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_telemetry_unique
+    ON telemetry_events(event_type, session_hash, IFNULL(scan_id, 0));
+
   CREATE TABLE IF NOT EXISTS abuse_counters (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     bucket_key TEXT NOT NULL UNIQUE,

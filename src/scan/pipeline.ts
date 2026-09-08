@@ -22,7 +22,7 @@ import { conflictCandidates } from '../rules/conflicts';
 import { reviewCandidates, type AiStatus, type AiVerdict } from '../ai/review';
 import type { FindingDraft, PageContext, FailedPage } from '../rules/types';
 import { baseRankScore } from '../rules/types';
-import type { ExtractedPage, PageType, ScanStage } from '../types';
+import type { ExtractedPage, PageResultRow, PageType, ScanStage } from '../types';
 import { logger } from '../util/logger';
 import { pLimit, sha256, sleep, urlKeySafe } from './helpers';
 
@@ -214,7 +214,7 @@ export async function runScan(scanId: number, deps: PipelineDeps = {}): Promise<
 
       if (!res.body || res.status === null || res.status >= 400 || res.errorCode) {
         failedCount++;
-        if (res.status === 429) rateLimited = true;
+        if (isRateLimited(res)) rateLimited = true;
         const pageId = await storeFailure(scanId, {
           requestedUrl: item.url,
           finalUrl: res.finalUrl,
@@ -410,8 +410,27 @@ export async function retryFailedPages(scanId: number): Promise<number> {
   const stillFailed: FailedPage[] = [];
   let recovered = 0;
 
-  for (const page of failed.slice(0, config.maxPages)) {
+  const pending = failed.slice(0, config.maxPages);
+  let rateLimited = false;
+
+  for (let i = 0; i < pending.length; i++) {
+    const page = pending[i];
     const res = await fetchOne(page.requested_url, {});
+    if (isRateLimited(res)) {
+      // 429：立即退避，本页与剩余未重试页面都保持失败状态，不再继续加压
+      rateLimited = true;
+      stillFailed.push(toFailedPage(page, res));
+      for (const rest of pending.slice(i + 1)) stillFailed.push(toFailedPage(rest));
+      event(
+        scanId,
+        'rate_limited',
+        '目标网站正在限制自动访问（429），已停止继续重试，稍后再试。',
+        'checking_content',
+        90
+      );
+      repo.bumpCounter('ratelimit:' + scan.normalized_domain);
+      break;
+    }
     if (res.body && res.status !== null && res.status < 400 && !res.errorCode) {
       const stored = await storePage(scanId, {
         requestedUrl: page.requested_url,
@@ -426,15 +445,7 @@ export async function retryFailedPages(scanId: number): Promise<number> {
       );
       recovered++;
     } else {
-      stillFailed.push({
-        id: page.id,
-        url: page.requested_url,
-        pageType: (page.page_type as FailedPage['pageType']) ?? 'other',
-        errorCode: res.errorCode,
-        errorMessage: res.errorMessage,
-        httpStatus: res.status,
-        isSubmitted: false,
-      });
+      stillFailed.push(toFailedPage(page, res));
     }
   }
 
@@ -500,9 +511,36 @@ export async function retryFailedPages(scanId: number): Promise<number> {
     complete: failCount > 0 ? 0 : 1,
     failure_reason: null,
     failure_code: null,
+    truncation_note: rateLimited ? withRateLimitNote(scan.truncation_note) : scan.truncation_note,
   });
-  event(scanId, 'retry_done', `已重新检查 ${recovered} 个页面。`, 'done', 100);
+  event(
+    scanId,
+    'retry_done',
+    rateLimited ? `已重新检查 ${recovered} 个页面，其余页面因目标网站限流未重试。` : `已重新检查 ${recovered} 个页面。`,
+    'done',
+    100
+  );
   return recovered;
+}
+
+/** 失败页面记录转换为规则层需要的结构；res 存在时用本次重试的失败原因。 */
+function toFailedPage(page: PageResultRow, res?: FetchOutcome): FailedPage {
+  return {
+    id: page.id,
+    url: page.requested_url,
+    pageType: (page.page_type as FailedPage['pageType']) ?? 'other',
+    errorCode: res ? res.errorCode : page.error_code,
+    errorMessage: res ? res.errorMessage : page.error_message,
+    httpStatus: res ? res.status : page.http_status,
+    isSubmitted: false,
+  };
+}
+
+/** 在原有截断说明后补充 429 说明（已包含时不重复追加）。 */
+function withRateLimitNote(existing: string | null): string {
+  const note = '目标网站返回 429（限制自动访问），本次重试已提前停止。';
+  if (!existing) return note;
+  return existing.includes('429') ? existing : existing + note;
 }
 
 function safeIds(raw: string): number[] {
@@ -566,6 +604,11 @@ function syncProgress(
     scanned_count: scanned,
     failed_count: failed,
   });
+}
+
+/** 目标站点限流判定（主抓取与失败页重试共用）：429 必须立即停止继续请求。 */
+function isRateLimited(res: Pick<FetchOutcome, 'status'>): boolean {
+  return res.status === 429;
 }
 
 async function fetchOne(url: string, deps: PipelineDeps): Promise<FetchOutcome> {

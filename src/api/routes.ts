@@ -43,7 +43,13 @@ export function createApp(): express.Express {
   app.use(voterCookie);
 
   app.get('/api/health', (_req, res) => {
-    res.json({ ok: true, env: config.env, retentionDays: config.retentionDays, maxPages: config.maxPages });
+    res.json({
+      ok: true,
+      env: config.env,
+      retentionDays: config.retentionDays,
+      maxPages: config.maxPages,
+      telemetry: config.telemetry.enabled,
+    });
   });
 
   /* ------------------------------ 创建扫描 ------------------------------ */
@@ -184,6 +190,33 @@ export function createApp(): express.Express {
       helpful_count: updated?.helpful_count ?? 0,
       not_helpful_count: updated?.not_helpful_count ?? 0,
     });
+  });
+
+  /* ------------------------------ 前端埋点 ------------------------------ */
+  /**
+   * 匿名行为埋点（docs/VALIDATION.md §2）。
+   * 只接受白名单事件名，只落库「事件名 + 扫描 id + 会话哈希」，
+   * 不接受也不保存 URL、页面正文、Cookie 原文与 IP 原文。
+   */
+  app.post('/api/telemetry', (req: Request, res: Response) => {
+    const event = req.body?.event;
+    if (!repo.isTelemetryEvent(event)) {
+      return res.status(400).json({ error: 'INVALID_EVENT', message: '未知的事件名。' });
+    }
+    if (!config.telemetry.enabled) return res.json({ ok: true, disabled: true });
+
+    const session = voterHash(req.cookies?.fp_voter, clientIp(req));
+    const day = new Date().toISOString().slice(0, 10);
+    const used = repo.bumpCounter(`telemetry:${session}:${day}`);
+    if (used > config.telemetry.maxEventsPerSessionPerDay) {
+      return res.status(429).json({ error: 'RATE_LIMITED', message: '埋点上报过于频繁。' });
+    }
+
+    // token 只用来把事件绑定到具体扫描；无效或已过期时按无绑定记录
+    const rawToken = typeof req.body?.token === 'string' ? req.body.token : '';
+    const scan = rawToken ? repo.getLiveScanByToken(rawToken) : undefined;
+    const result = repo.recordTelemetry(event, session, scan ? scan.id : null);
+    return res.json({ ok: true, duplicate: result === 'duplicate' });
   });
 
   /* ------------------------------ 示例报告 ------------------------------ */

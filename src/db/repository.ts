@@ -86,6 +86,17 @@ export function getQueuedScans(limit: number): ScanRow[] {
     .all(Math.max(1, limit)) as unknown as ScanRow[];
 }
 
+/**
+ * 原子认领 queued 任务：条件更新，只有影响到行的那个 Worker 才算抢到。
+ * 多实例部署时避免「读—改—写」导致同一任务被重复领取。
+ */
+export function claimQueuedScan(id: number): boolean {
+  const info = getDb()
+    .prepare(`UPDATE scans SET status = 'running' WHERE id = ? AND status = 'queued' AND deleted_at IS NULL`)
+    .run(id);
+  return Number(info.changes ?? 0) > 0;
+}
+
 export function updateScan(
   id: number,
   patch: Partial<{
@@ -380,6 +391,69 @@ export function listScanEvents(scanId: number, limit = 50): ScanEventRow[] {
     .all(scanId, limit) as unknown as ScanEventRow[];
 }
 
+/* ---------------------------- telemetry ------------------------------ */
+
+/** 允许上报的事件名（白名单之外一律拒绝，避免被写入任意文本）。 */
+export const TELEMETRY_EVENTS = [
+  'home_view',
+  'input_valid',
+  'scan_created',
+  'progress_view',
+  'progress_return',
+  'finding_expand',
+  'copy_link',
+  'rescan_click',
+  'monitor_intent',
+] as const;
+
+export type TelemetryEvent = (typeof TELEMETRY_EVENTS)[number];
+
+export function isTelemetryEvent(value: unknown): value is TelemetryEvent {
+  return typeof value === 'string' && (TELEMETRY_EVENTS as readonly string[]).includes(value);
+}
+
+/**
+ * 记录一条匿名埋点。同一会话 + 同一扫描 + 同一事件只保留第一条
+ * （指标口径是「有多少用户做过」，重复上报不放大分子）。
+ * @returns 'recorded' 首次记录；'duplicate' 已存在。
+ */
+export function recordTelemetry(
+  event: TelemetryEvent,
+  sessionHash: string,
+  scanId: number | null
+): 'recorded' | 'duplicate' {
+  const info = getDb()
+    .prepare(
+      `INSERT OR IGNORE INTO telemetry_events (scan_id, event_type, session_hash, created_at)
+       VALUES (?, ?, ?, ?)`
+    )
+    .run(scanId, event, sessionHash, nowIso());
+  return Number(info.changes ?? 0) > 0 ? 'recorded' : 'duplicate';
+}
+
+/** 做过其中任一事件的去重会话数（用于「分享或询问持续监控」这类合并口径）。 */
+export function telemetrySessionsForAny(events: readonly string[]): number {
+  const list = events.filter((e) => (TELEMETRY_EVENTS as readonly string[]).includes(e));
+  if (list.length === 0) return 0;
+  const placeholders = list.map(() => '?').join(',');
+  const row = getDb()
+    .prepare(
+      `SELECT COUNT(DISTINCT session_hash) AS n FROM telemetry_events WHERE event_type IN (${placeholders})`
+    )
+    .get(...(list as never[])) as unknown as { n: number };
+  return Number(row?.n ?? 0);
+}
+
+/** 按事件统计去重会话数与事件总数，用于验证指标（见 docs/VALIDATION.md）。 */
+export function telemetryFunnel(): Array<{ event_type: string; sessions: number; events: number }> {
+  return getDb()
+    .prepare(
+      `SELECT event_type, COUNT(DISTINCT session_hash) AS sessions, COUNT(*) AS events
+       FROM telemetry_events GROUP BY event_type ORDER BY event_type`
+    )
+    .all() as unknown as Array<{ event_type: string; sessions: number; events: number }>;
+}
+
 /* --------------------------- abuse counters -------------------------- */
 
 export function bumpCounter(key: string, windowMs?: number): number {
@@ -454,9 +528,12 @@ export function purgeExpired(retentionDays: number): number {
       db.prepare('DELETE FROM page_results WHERE scan_id = ?').run(r.id);
       db.prepare('DELETE FROM scan_events WHERE scan_id = ?').run(r.id);
       db.prepare('DELETE FROM feedback_events WHERE scan_id = ?').run(r.id);
+      db.prepare('DELETE FROM telemetry_events WHERE scan_id = ?').run(r.id);
       db.prepare('DELETE FROM scans WHERE id = ?').run(r.id);
       removed++;
     }
+    // 未绑定扫描的埋点（如 home_view）按同样的保留期清理
+    db.prepare('DELETE FROM telemetry_events WHERE scan_id IS NULL AND created_at < ?').run(cutoff);
     db.exec('COMMIT');
   } catch (e) {
     db.exec('ROLLBACK');

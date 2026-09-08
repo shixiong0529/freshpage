@@ -5,7 +5,36 @@
   var MAX_MAIN_FINDINGS = 20;
   var app = document.getElementById('app');
   var pollTimer = null;
-  var state = { view: 'home', token: null, payload: null, submitting: false, lastVote: {} };
+  var state = { view: 'home', token: null, payload: null, submitting: false, lastVote: {}, isExample: false };
+
+  /* --------------------------- 匿名埋点 ---------------------------
+     只上报事件名和结果 token（用于把事件归到某次检查），
+     不上报网址、页面正文或任何个人信息；服务端按会话去重，7 天后随结果一起删除。
+     埋点失败不影响任何功能。见 docs/VALIDATION.md。 */
+  var tracked = {};
+  function track(event, token) {
+    if (state.isExample) return; // 示例报告不计入验证指标
+    var key = event + ':' + (token || '');
+    if (tracked[key]) return;
+    tracked[key] = true;
+    var body = JSON.stringify(token ? { event: event, token: token } : { event: event });
+    try {
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon('/api/telemetry', new Blob([body], { type: 'application/json' }));
+        return;
+      }
+    } catch (e) { /* 继续用 fetch 兜底 */ }
+    try {
+      fetch('/api/telemetry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: body,
+        keepalive: true
+      }).catch(function () { /* 埋点失败静默忽略 */ });
+    } catch (e) { /* 埋点失败静默忽略 */ }
+  }
+
+  var LOOKS_LIKE_URL = /^(https?:\/\/)?[\w-]+(\.[\w-]+)+/;
 
   var STAGES = [
     { key: 'checking_access', label: '正在确认网站是否可以访问' },
@@ -65,6 +94,7 @@
   /* ------------------------------- 首页 ------------------------------- */
   function renderHome() {
     state.view = 'home';
+    state.isExample = false;
     app.innerHTML =
       '<form id="scan-form" autocomplete="off" novalidate>' +
       '<section class="hero">' +
@@ -94,6 +124,11 @@
     var btn = document.getElementById('submit-btn');
     var err = document.getElementById('form-error');
     input.focus();
+    track('home_view');
+
+    input.addEventListener('input', function () {
+      if (LOOKS_LIKE_URL.test(input.value.trim())) track('input_valid');
+    });
 
     form.addEventListener('submit', function (e) {
       e.preventDefault();
@@ -133,6 +168,7 @@
           if (btn) { btn.disabled = false; btn.textContent = '开始检查'; }
           return;
         }
+        track('scan_created', res.body.token);
         history.pushState({}, '', res.body.resultUrl);
         state.token = res.body.token;
         renderProgress(res.body.token);
@@ -149,7 +185,9 @@
   /* ------------------------------ 进度页 ------------------------------ */
   function renderProgress(token) {
     state.view = 'progress';
+    state.isExample = false;
     state.token = token;
+    track('progress_view', token);
     app.innerHTML = '<div class="card" id="progress-card"><div class="loading">正在准备检查…</div></div>';
     poll();
     clearInterval(pollTimer);
@@ -228,6 +266,7 @@
       '<div class="wait-note">通常需要几十秒到几分钟。你可以先复制链接离开，稍后再打开查看结果。</div>';
 
     document.getElementById('copy-btn').addEventListener('click', function () {
+      track('copy_link', state.token);
       copyText(location.origin + '/result/' + state.token);
     });
     document.getElementById('cancel-btn').addEventListener('click', function () {
@@ -308,10 +347,12 @@
     if (infos.length > 0) html += renderGroup('信息', '不构成问题，但值得知道。', infos, 'info');
     html += renderPages(payload.pages || []);
     html += renderLimits(payload);
+    if (!state.isExample) html += renderMonitorCta();
 
     app.innerHTML = html;
     bindResultActions(scan);
     bindFeedback();
+    bindTelemetry();
   }
 
   function renderGroup(title, desc, list, severity) {
@@ -432,7 +473,10 @@
     var copy = document.getElementById('copy');
     var rescan = document.getElementById('rescan');
     var del = document.getElementById('delete');
-    if (copy) copy.addEventListener('click', function () { copyText(location.origin + '/result/' + state.token); });
+    if (copy) copy.addEventListener('click', function () {
+      track('copy_link', state.token);
+      copyText(location.origin + '/result/' + state.token);
+    });
     var retry = document.getElementById('retry-failed');
     if (retry) retry.addEventListener('click', function () {
       retry.disabled = true;
@@ -452,6 +496,7 @@
         .catch(function () { toast('网络异常'); retry.disabled = false; });
     });
     if (rescan) rescan.addEventListener('click', function () {
+      track('rescan_click', state.token);
       history.pushState({}, '', '/');
       renderHome();
       var input = document.getElementById('url-input');
@@ -492,9 +537,43 @@
     });
   }
 
+  /** 「希望持续监控」意向：方案第 19 节的验证指标之一，只记录一次匿名点击。 */
+  function renderMonitorCta() {
+    return '<section class="section"><div class="card">' +
+      '<h2 style="margin:0 0 6px;font-size:17px">希望我们持续监控这个网站吗？</h2>' +
+      '<p class="result-meta" style="margin:0 0 14px">现在只做一次性检查。如果你希望内容出问题时收到提醒，' +
+      '点一下让我们知道——只记录一次匿名点击，不需要留下联系方式。</p>' +
+      '<button class="btn btn ghost sm" id="monitor-intent">希望持续监控</button> ' +
+      '<span class="thanks" id="monitor-thanks" hidden>已记录你的期望，谢谢</span>' +
+      '</div></section>';
+  }
+
+  /** 结果页埋点：展开某条问题的证据、表达持续监控意向。 */
+  function bindTelemetry() {
+    var details = app.querySelectorAll('.finding details');
+    Array.prototype.forEach.call(details, function (d) {
+      d.addEventListener('toggle', function () {
+        if (d.open) track('finding_expand', state.token);
+      });
+    });
+    // 证据默认直接展示，点开证据页面同样计为「查看了证据」
+    var links = app.querySelectorAll('.finding .finding-pages a');
+    Array.prototype.forEach.call(links, function (a) {
+      a.addEventListener('click', function () { track('finding_expand', state.token); });
+    });
+    var monitor = document.getElementById('monitor-intent');
+    if (monitor) monitor.addEventListener('click', function () {
+      track('monitor_intent', state.token);
+      monitor.disabled = true;
+      var thanks = document.getElementById('monitor-thanks');
+      if (thanks) thanks.hidden = false;
+    });
+  }
+
   /* ------------------------------ 示例报告 ----------------------------- */
   function renderExample() {
     state.view = 'example';
+    state.isExample = true;
     app.innerHTML = '<div class="loading">正在加载示例报告…</div>';
     fetch('/api/example')
       .then(function (r) { return r.json(); })
@@ -521,6 +600,7 @@
     var m = path.match(/^\/result\/([A-Za-z0-9_-]+)\/?$/);
     if (m) {
       state.token = decodeURIComponent(m[1]);
+      track('progress_return', state.token); // 直接打开结果链接 = 离开后返回
       renderProgress(state.token);
       return;
     }
@@ -530,6 +610,11 @@
     }
     renderHome();
   }
+
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState !== 'visible' || !state.token) return;
+    if (state.view === 'progress' || state.view === 'result') track('progress_return', state.token);
+  });
 
   window.addEventListener('popstate', function () { clearInterval(pollTimer); route(); });
   route();

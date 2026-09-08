@@ -79,6 +79,13 @@ export const config = {
   // ---------- 展示 ----------
   maxMainFindings: int('FP_MAX_MAIN_FINDINGS', 20),
 
+  // ---------- 前端埋点 ----------
+  telemetry: {
+    enabled: bool('FP_TELEMETRY_ENABLED', true),
+    /** 单会话每日可写入的埋点条数上限，防止被刷 */
+    maxEventsPerSessionPerDay: int('FP_TELEMETRY_MAX_PER_SESSION_DAY', 200),
+  },
+
   // ---------- 数据保留 ----------
   retentionDays: int('FP_RETENTION_DAYS', 7),
   cleanupIntervalMs: int('FP_CLEANUP_INTERVAL_MS', 60 * 60 * 1000),

@@ -21,6 +21,25 @@ async function loadPlaywright(): Promise<any | null> {
   }
 }
 
+const LAUNCH_ARGS = ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--no-proxy-server'];
+
+/**
+ * 启动 Chromium。
+ * 新版 Playwright 默认用 chrome-headless-shell 启动，只执行过
+ * `playwright install chromium` 的机器上没有这个二进制，因此失败后再用完整
+ * Chromium（channel: 'chromium'）重试一次；两者都没有时交给调用方降级。
+ */
+async function launchChromium(pw: any): Promise<any> {
+  try {
+    return await pw.chromium.launch({ args: LAUNCH_ARGS });
+  } catch (err) {
+    logger.debug('headless shell launch failed, retrying with full chromium', {
+      message: (err as Error).message,
+    });
+    return pw.chromium.launch({ channel: 'chromium', args: LAUNCH_ARGS });
+  }
+}
+
 export async function renderPage(url: string): Promise<{ html: string; finalUrl: string } | null> {
   if (!config.browserFallback.enabled) return null;
   const pw = await loadPlaywright();
@@ -28,9 +47,7 @@ export async function renderPage(url: string): Promise<{ html: string; finalUrl:
 
   let browser: any = null;
   try {
-    browser = await pw.chromium.launch({
-      args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--no-proxy-server'],
-    });
+    browser = await launchChromium(pw);
     const context = await browser.newContext({
       userAgent: config.userAgent,
       javaScriptEnabled: true,

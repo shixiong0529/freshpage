@@ -5,7 +5,7 @@
 
 对应方案文档：`FreshPage-V0极简验证版方案.md`
 
-**当前状态：方案 §1–§24 全部落地，62/62 自动化测试通过，端到端冒烟全绿。**
+**当前状态：方案 §1–§24 全部落地，68/68 自动化测试通过，端到端冒烟全绿。**
 
 ---
 
@@ -22,10 +22,11 @@ npm start            # 默认 http://localhost:3000
 可选：
 
 ```bash
-npm test             # 编译 + 运行 62 个测试（38 单元 + 24 集成）
+npm test             # 编译 + 运行 68 个测试（38 单元 + 30 集成）
 npm run gen:sample   # 生成「示例报告」所需的数据文件 data/sample-report.json
 npm run worker       # 以独立 Worker 进程模式启动（配合 FP_API_ONLY=1 的 Web 进程）
 npm run cleanup      # 手动执行一次过期数据清理
+npm run stats        # 打印验证指标（完成率 / 反馈 / 埋点漏斗）
 ```
 
 浏览器打开 `http://localhost:3000`，输入任意公开网址即可开始检查。
@@ -85,7 +86,7 @@ src/
   db/                    SQLite 连接、迁移、仓储层
   util/                  日志与通用工具
   fixtures/              固定测试网站服务（本地演示用）
-  scripts/               示例报告生成脚本
+  scripts/               示例报告生成、验证指标统计脚本
 public/                  前端页面（首页 / 进度 / 结果 / 隐私说明）
 fixtures/demo-site/      受控演示网站（方案第 16 节要求的全部场景）
 tests/                   单元测试与集成测试
@@ -103,6 +104,7 @@ docs/                    SSRF、验收清单、已知限制、验证记录
 | POST | `/api/scans/:token/retry-failed` | 只重试失败页面，保留已有结果 |
 | DELETE | `/api/scans/:token` | 立即删除结果（链接随即 404） |
 | POST | `/api/findings/:id/feedback` | 对单条结果投票「有用 / 没用」，需携带正确 token |
+| POST | `/api/telemetry` | 匿名行为埋点（白名单事件名 + 可选 token），用于验证指标 |
 | GET | `/api/example` | 示例报告数据（未生成时返回 404） |
 
 页面路由：`/`、`/privacy`、`/example`、`/result/:token`（均为 SPA 入口）。
@@ -126,7 +128,9 @@ docs/                    SSRF、验收清单、已知限制、验证记录
 | `AI_BASE_URL` / `AI_API_KEY` / `AI_MODEL` | DeepSeek 默认值 | 不配置则跳过 AI 复核 |
 | `FP_AI_ENABLED` | true | 关闭后只输出规则结果 |
 | `FP_AI_MIN_CONFIDENCE` | 0.55 | 低于该置信度的 AI 判断不展示 |
-| `FP_BROWSER_FALLBACK` | true | JS 渲染回退开关（需已安装 Playwright 浏览器） |
+| `FP_BROWSER_FALLBACK` | true | JS 渲染回退开关（需 `npx playwright install chromium`；缺少 headless shell 时自动改用完整 Chromium） |
+| `FP_TELEMETRY_ENABLED` | true | 匿名前端埋点开关 |
+| `FP_TELEMETRY_MAX_PER_SESSION_DAY` | 200 | 单会话每日埋点条数上限 |
 | `FP_MAX_SCANS_PER_IP` | 6 / 10 分钟 | 单 IP 频率限制 |
 | `FP_MAX_SCANS_PER_IP_DAY` | 30 | 单 IP 每日上限 |
 | `FP_DAILY_PAGE_BUDGET` | 5000 | 全局每日页面预算 |
@@ -140,16 +144,17 @@ docs/                    SSRF、验收清单、已知限制、验证记录
 - SSRF 防护细节见 [`docs/SSRF.md`](docs/SSRF.md)：协议 + 端口白名单、DNS 解析后逐 IP 校验、pin 住 lookup 防 DNS rebinding、每次重定向重新校验、IPv4/IPv6 各类字面量与隧道地址拆解。
 - 结果链接使用 160 bit 随机 token，不可枚举；7 天后自动失效，用户可在结果页立即删除。
 - 日志不记录网页正文，IP 只保存哈希值。
+- 匿名埋点只记录事件名、结果 token 与会话哈希，随结果一起 7 天后删除，可用 `FP_TELEMETRY_ENABLED=0` 关闭。
 - 防滥用全部在后台强制，不依赖前端限制。
 - 抓取遵循 `robots.txt`；站点全站 `Disallow` 时直接失败退出。
 
 ## 8. 测试与验收
 
 ```bash
-npm test    # 62 个用例：38 单元 + 24 集成
+npm test    # 68 个用例：38 单元 + 30 集成
 ```
 
-覆盖范围：URL 归一化、SSRF 拦截（15 个危险地址）、robots / sitemap 解析、页面发现优先级、事实抽取、各规则命中与误报抑制、AI 降级、API 全流程、限流、数据清理、失败页重试。
+覆盖范围：URL 归一化、SSRF 拦截（15 个危险地址）、robots / sitemap 解析、页面发现优先级、事实抽取、各规则命中与误报抑制、AI 降级、API 全流程、限流、数据清理、失败页重试（含 429 退避）、任务原子认领、匿名埋点。
 
 误报收敛已用真实站点 `neovim.io` 回归验证：首轮 11 条误报 → 修复后 **0 条**。
 
