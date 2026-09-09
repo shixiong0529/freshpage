@@ -809,7 +809,7 @@ async function applyAiReview(drafts: FindingDraft[], deps: PipelineDeps): Promis
     for (let i = drafts.length - 1; i >= 0; i--) {
       const d = drafts[i];
       if (!d.aiReview) continue;
-      if (d.findingType === 'conflict_availability' || d.findingType === 'conflict_quota') {
+      if (d.findingType === 'conflict_quota') {
         drafts.splice(i, 1);
       } else {
         d.summary = `${d.summary}（本次未能完成自动复核，请人工确认。）`;

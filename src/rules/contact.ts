@@ -106,7 +106,8 @@ export function contactFindings(pages: PageContext[], siteDomain: string): Findi
     const draft: FindingDraft = {
       findingType: 'contact_email_domain_mismatch',
       fingerprint: fp(['contact_email_domain_mismatch', domain]),
-      severity: 'warning',
+      // 集团邮箱、外包客服邮箱都很常见，0.55 的置信度撑不起 warning，按规则审核结果降为 info
+      severity: 'info',
       title: '联系邮箱的域名与网站域名不一致',
       summary: `页面中出现的邮箱 ${entry.email} 使用的域名与 ${siteRoot} 不同。可能是旧品牌、代理商或第三方服务留下的地址。`,
       pageResultIds: [entry.page.id],
@@ -124,7 +125,7 @@ export function contactFindings(pages: PageContext[], siteDomain: string): Findi
       detectionMethod: 'heuristic',
       rankScore: 0,
     };
-    draft.rankScore = baseRankScore('warning', 'heuristic', entry.page.importance, 1, 0.55);
+    draft.rankScore = baseRankScore('info', 'heuristic', entry.page.importance, 1, 0.55);
     out.push(draft);
   }
 

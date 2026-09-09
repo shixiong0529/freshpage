@@ -154,8 +154,9 @@ const PLACEHOLDER_PATTERNS: Array<{ re: RegExp; label: string; level: 'high' | '
   { re: /under\s+construction|网站建设中|正在建设/i, label: '在建提示', level: 'high' },
   { re: /\$\{\s*[a-zA-Z0-9_.\-]+\s*\}/, label: '未替换的模板变量 ${...}', level: 'low', template: true },
   { re: /<%=\s*[a-zA-Z0-9_.\-]+\s*%>/, label: '未替换的模板变量 <%= ... %>', level: 'low', template: true },
-  { re: /\bTODO\b|\bFIXME\b|\bXXX\b/, label: '开发标记 TODO / FIXME', level: 'low' },
-  { re: /localhost|127\.0\.0\.1|staging\.|test\s+environment/i, label: '测试环境地址', level: 'low' },
+  // XXX 会误伤「XXX 公司」「XXX 元」这类正常占位写法，已按规则审核结果移除
+  { re: /\bTODO\b|\bFIXME\b/, label: '开发标记 TODO / FIXME', level: 'low' },
+  // 「测试环境地址」曾在这里：localhost / 127.0.0.1 在技术文档与帮助页里是正常内容，误报过多，已移除
 ];
 
 export interface PlaceholderHit {

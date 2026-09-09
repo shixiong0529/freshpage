@@ -5,7 +5,7 @@
 
 对应方案文档：`FreshPage-V0极简验证版方案.md`
 
-**当前状态：方案 §1–§24 全部落地，68/68 自动化测试通过，端到端冒烟全绿。**
+**当前状态：方案 §1–§24 全部落地，73/73 自动化测试通过，端到端冒烟全绿。**
 
 ---
 
@@ -22,7 +22,7 @@ npm start            # 默认 http://localhost:3000
 可选：
 
 ```bash
-npm test             # 编译 + 运行 68 个测试（38 单元 + 30 集成）
+npm test             # 编译 + 运行 73 个测试（43 单元 + 30 集成）
 npm run gen:sample   # 生成「示例报告」所需的数据文件 data/sample-report.json
 npm run worker       # 以独立 Worker 进程模式启动（配合 FP_API_ONLY=1 的 Web 进程）
 npm run cleanup      # 手动执行一次过期数据清理
@@ -48,6 +48,8 @@ npm run stats        # 打印验证指标（完成率 / 反馈 / 埋点漏斗）
 
 ## 3. 能查出什么问题
 
+> 完整的 12 类规则清单、触发阈值，以及 2026-09-09 审核中删除与降级的记录，见 [`docs/RULES.md`](docs/RULES.md)。
+
 ### 3.1 确定性检查（不依赖 AI，可复现）
 
 | 检查项 | 规则文件 | 严重度 |
@@ -55,12 +57,12 @@ npm run stats        # 打印验证指标（完成率 / 反馈 / 埋点漏斗）
 | 页面无法访问（4xx / 5xx / 超时） | `src/rules/pageAccess.ts` | 关键页 critical，其余 warning |
 | 站内链接失效 | `src/rules/brokenLinks.ts` | warning |
 | 疑似过期日期（促销 / 截止时间） | `src/rules/dates.ts` | warning |
-| 联系方式异常（电话不一致 / 邮箱域名不符 / mailto 不符） | `src/rules/contact.ts` | warning |
-| 占位内容（未替换模板变量 / Lorem ipsum / 在建提示） | `src/rules/content.ts` | 模板变量 + 关键页 = critical，其余 warning |
+| 联系方式异常（电话不一致 / mailto 不符 / 邮箱域名不符） | `src/rules/contact.ts` | 电话与 mailto warning，邮箱域名 info |
+| 占位内容（未替换模板变量 / Lorem ipsum / 在建提示 / TODO） | `src/rules/content.ts` | 模板变量 + 关键页 = critical，其余 warning |
 
 ### 3.2 跨页面事实冲突
 
-`src/rules/conflicts.ts` 从各页抽取价格、免费试用天数、退款天数、配额等事实，按实体键比对**单位一致**的冲突，结果页以左右并排形式展示两处原文证据与链接。冲突为「候选」，需人工确认——不同套餐价格不同属正常业务差异。
+`src/rules/conflicts.ts` 从各页抽取价格、免费试用天数、退款天数、使用额度等事实，按实体键比对**单位一致**的冲突，结果页以左右并排形式展示两处原文证据与链接。冲突为「候选」，需人工确认——不同套餐价格不同属正常业务差异。
 
 ### 3.3 AI 辅助复核（安全降级）
 
@@ -90,7 +92,7 @@ src/
 public/                  前端页面（首页 / 进度 / 结果 / 隐私说明）
 fixtures/demo-site/      受控演示网站（方案第 16 节要求的全部场景）
 tests/                   单元测试与集成测试
-docs/                    SSRF、验收清单、已知限制、验证记录
+docs/                    SSRF、规则清单、验收清单、已知限制、验证记录
 ```
 
 ## 5. HTTP 接口
@@ -152,7 +154,7 @@ docs/                    SSRF、验收清单、已知限制、验证记录
 ## 8. 测试与验收
 
 ```bash
-npm test    # 68 个用例：38 单元 + 30 集成
+npm test    # 73 个用例：43 单元 + 30 集成
 ```
 
 覆盖范围：URL 归一化、SSRF 拦截（15 个危险地址）、robots / sitemap 解析、页面发现优先级、事实抽取、各规则命中与误报抑制、AI 降级、API 全流程、限流、数据清理、失败页重试（含 429 退避）、任务原子认领、匿名埋点。
@@ -161,5 +163,6 @@ npm test    # 68 个用例：38 单元 + 30 集成
 
 - 验收清单见 [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md)。
 - 已知限制见 [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md)。
+- 检查规则清单与取舍记录见 [`docs/RULES.md`](docs/RULES.md)。
 - 用户验证数据记录方式见 [`docs/VALIDATION.md`](docs/VALIDATION.md)。
 - **遗留问题处理记录见 [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md)：原清单 4 项已全部处理，其中埋点口径与浏览器回退前提有需要注意的地方。**

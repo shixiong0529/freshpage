@@ -51,6 +51,8 @@ export function conflictCandidates(pages: PageContext[]): FindingDraft[] {
 
     // 日期由专门的「过期日期」规则处理；不同页面出现不同日期是正常现象
     if (factType === 'date') continue;
+    // 功能状态冲突置信度只有 0.35，价值不足且维护成本不低，已按规则审核结果移除
+    if (factType === 'availability') continue;
 
     // 历史发布文章不作为冲突来源：博客里的旧价格/旧政策不代表当前事实
     const kept = entries.filter((e) => e.page.pageType !== 'blog');
@@ -90,12 +92,12 @@ export function conflictCandidates(pages: PageContext[]): FindingDraft[] {
     if (factType === 'price') confidence = involvesBlog ? 0.6 : 0.8;
     else if (factType === 'trial_days' || factType === 'refund_days') confidence = involvesBlog ? 0.6 : 0.78;
     else if (factType === 'quota') confidence = 0.5;
-    else if (factType === 'availability') confidence = 0.35;
 
     if (a.entry.fact.qualifier !== b.entry.fact.qualifier) confidence -= 0.15;
     if (a.entry.fact.unit !== b.entry.fact.unit) continue;
 
-    const severity = factType === 'availability' ? 'info' : 'warning';
+    // 不同套餐额度天然不同，quota 只作为「值得一看」的信息，不进 warning
+    const severity = factType === 'quota' ? 'info' : 'warning';
     const label = TYPE_LABEL[factType] ?? factType;
     const entityLabel = humanEntity(a.entry.fact.entityKey, factType);
 

@@ -114,6 +114,51 @@ test('未替换模板变量被判定为需要优先处理', () => {
   assert.equal(placeholder.severity, 'critical');
 });
 
+/* --------- 2026-09-09 规则审核结果：以下几条锁定「不再报」或「已降级」 --------- */
+
+test('缺少标题 / 缺少 H1 / 正文过短都不再作为问题输出', () => {
+  const bare = page(
+    1,
+    'https://a.com/',
+    '<html><head></head><body><p>很短</p></body></html>',
+    'home'
+  );
+  const findings = contentFindings([bare]);
+  for (const type of ['empty_title', 'empty_h1', 'thin_content']) {
+    assert.equal(findings.filter((f) => f.findingType === type).length, 0, `${type} 应已移除`);
+  }
+});
+
+test('localhost 与 XXX 不再被当作占位内容', () => {
+  const doc = page(
+    1,
+    'https://a.com/',
+    '<html><head><title>快速开始</title></head><body><h1>快速开始</h1>' +
+      '<p>本地启动后访问 http://localhost:3000 即可，示例公司名写作 XXX 有限公司。</p></body></html>',
+    'home'
+  );
+  const findings = contentFindings([doc]);
+  assert.equal(findings.filter((f) => f.findingType === 'placeholder_content').length, 0);
+});
+
+test('TODO 标记在首页仍然会被报出', () => {
+  const doc = page(
+    1,
+    'https://a.com/',
+    '<html><head><title>首页</title></head><body><h1>首页</h1><p>价格表 TODO 待补充定价。</p></body></html>',
+    'home'
+  );
+  const findings = contentFindings([doc]);
+  assert.ok(findings.some((f) => f.findingType === 'placeholder_content'));
+});
+
+test('功能状态冲突不再生成候选', () => {
+  const a = page(1, 'https://a.com/features', '<html><body><p>团队协作功能已上线。</p></body></html>', 'features');
+  const b = page(2, 'https://a.com/help', '<html><body><p>团队协作功能即将推出。</p></body></html>', 'help');
+  const findings = conflictCandidates([a, b]);
+  assert.equal(findings.filter((f) => f.findingType === 'conflict_availability').length, 0);
+});
+
 test('不同联系电话生成候选', () => {
   const a = page(1, 'https://a.com/contact', '<html><body><p>客服电话：400-123-4567</p></body></html>', 'contact');
   const b = page(2, 'https://a.com/about', '<html><body><p>联系电话：0755-8888-6666</p></body></html>', 'about');
@@ -125,6 +170,13 @@ test('免费邮箱域名不会被误判为品牌不一致', () => {
   const a = page(1, 'https://a.com/contact', '<html><body><p>邮箱：someone@gmail.com</p></body></html>', 'contact');
   const findings = contactFindings([a], 'a.com');
   assert.equal(findings.filter((f) => f.findingType === 'contact_email_domain_mismatch').length, 0);
+});
+
+test('邮箱域名不一致只作为信息级结果', () => {
+  const a = page(1, 'https://a.com/contact', '<html><body><p>邮箱：hi@old-brand.io</p></body></html>', 'contact');
+  const hit = contactFindings([a], 'a.com').find((f) => f.findingType === 'contact_email_domain_mismatch');
+  assert.ok(hit, '仍应产出候选');
+  assert.equal(hit.severity, 'info');
 });
 
 test('提交地址无法访问时判定为需要优先处理', () => {
