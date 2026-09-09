@@ -29,6 +29,23 @@ function list(name: string, fallback: string[]): string[] {
 
 const ROOT = projectRoot();
 
+/**
+ * 本地开发用的 `.env`：用 Node 内置解析器加载，无需额外依赖。
+ * - **不覆盖**已经注入的真实环境变量，生产环境仍以注入的值为准；
+ * - 没有 `.env`、或文件不可读时静默跳过；
+ * - 测试环境不加载，避免真实密钥影响 `tests/setup.ts` 的固定配置。
+ */
+function loadDotEnvFile(): void {
+  if (process.env.NODE_ENV === 'test') return;
+  try {
+    (process as unknown as { loadEnvFile: (p: string) => void }).loadEnvFile(path.join(ROOT, '.env'));
+  } catch {
+    /* 没有 .env 就用进程自带的环境变量 */
+  }
+}
+
+loadDotEnvFile();
+
 export const config = {
   env: process.env.NODE_ENV || 'development',
   root: ROOT,

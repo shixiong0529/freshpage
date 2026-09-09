@@ -22,6 +22,19 @@
 
 ---
 
+## 本轮追加修复：`.env` 从未被读取
+
+- **现象**：`.env` 里配了 `AI_API_KEY` 也不生效，AI 复核始终被跳过。
+- **原因**：项目没有 dotenv 依赖，也没有任何 `.env` 加载逻辑，`config.ts` 直接读 `process.env`，
+  而 `npm start` 不会注入 `.env`。`.env.example` 却写着「复制为 .env 后按需修改」，属于误导。
+- **处理**：`src/config.ts` 用 Node 内置 `process.loadEnvFile()` 加载根目录 `.env`（零依赖）。
+  已注入的真实环境变量优先，`.env` 不覆盖；测试环境（`NODE_ENV=test`）不加载，
+  避免真实密钥影响 `tests/setup.ts` 的固定配置。
+- **验证**：`npm run gen:sample` 走完整管道，`aiStatus` 由 `no_key` 变为 `ok`，
+  10 条问题中 2 条经 AI 复核（价格冲突 90%、试用天数 70%）。
+
+---
+
 ## 本轮处理明细
 
 ### 1. 前端埋点已实现（原第 1 条）

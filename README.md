@@ -137,7 +137,8 @@ docs/                    SSRF、验收清单、已知限制、验证记录
 | `FP_API_ONLY` | false | 只提供 API，不消费队列（配合独立 Worker） |
 | `FP_WORKER_ONLY` | false | 只消费队列，不监听 HTTP |
 
-完整说明见 `.env.example`。
+完整说明见 `.env.example`。启动时会自动加载项目根目录的 `.env`（Node 内置 `process.loadEnvFile`，无额外依赖）；
+已经注入的真实环境变量优先级更高，`.env` 不会覆盖它们，测试环境不加载 `.env`。
 
 ## 7. 安全与数据保留
 
